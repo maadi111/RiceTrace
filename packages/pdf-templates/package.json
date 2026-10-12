@@ -1,0 +1,16 @@
+{
+  "name": "@ricetrace/pdf-templates",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@ricetrace/types": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RiceTrace — Offline</title>
+  <style>
+    body {
+      font-family: -apple-system, 'Segoe UI', Arial, sans-serif;
+      background: #0f172a;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      text-align: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    .icon { font-size: 64px; margin-bottom: 16px; }
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; margin-top: 0; }
+    p { color: #94a3b8; font-size: 14px; line-height: 1.6; margin-bottom: 24px; }
+    button {
+      background: #10b981;
+      color: white;
+      border: none;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    button:hover { background: #059669; }
+  </style>
+</head>
+<body>
+  <div>
+    <div class="icon">🌾</div>
+    <h1>You're Offline</h1>
+    <p>
+      Don't worry — any lot entries you save will be<br>
+      stored on your device and synced automatically<br>
+      when your connection is restored.
+    </p>
+    <button onclick="window.location.href='/lots/new'">
+      Continue Working Offline
+    </button>
+  </div>
+</body>
+</html>

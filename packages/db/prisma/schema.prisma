@@ -1,0 +1,491 @@
+// schema.prisma
+// Purpose: Complete Prisma schema for RiceTrace — defines all database models,
+// enums, and relations for the rice mill export compliance & traceability SaaS.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── MULTI-TENANCY ───────────────────────────────────────────────────────────
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String                         // Mill or Trading Company name
+  slug        String   @unique               // URL slug for branding
+  plan        Plan     @default(STARTER)
+  logoUrl           String?                        // S3/R2 URL for mill logo
+  preaLicenseNumber String?                        // Pakistan Rice Exporters Assoc. license
+  exporterAddress   String?                        // Physical address of mill/exporter
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users            User[]
+  mills            Mill[]
+  buyers           Buyer[]
+  farmers          Farmer[]
+  procurementLots  ProcurementLot[]
+  millingBatches   MillingBatch[]
+  shipments        Shipment[]
+  labTests         LabTest[]
+  approvedLabs     ApprovedLab[]
+}
+
+enum Plan {
+  STARTER
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+// ─── USERS & AUTH ────────────────────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid())
+  organizationId String
+  email          String    @unique
+  passwordHash   String
+  name           String
+  role           UserRole
+  language       Language  @default(EN)
+  isActive       Boolean   @default(true)
+  lastLoginAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  procurementLots ProcurementLot[] @relation("CreatedBy")
+  millingBatches  MillingBatch[]   @relation("CreatedBy")
+  labTests        LabTest[]        @relation("CreatedBy")
+  shipments       Shipment[]       @relation("CreatedBy")
+  refreshTokens   RefreshToken[]
+}
+
+enum UserRole {
+  MILL_ADMIN
+  PROCUREMENT_OFFICER
+  MILL_MANAGER
+  QUALITY_MANAGER
+  EXPORT_MANAGER
+}
+
+enum Language {
+  EN
+  UR
+}
+
+// Separate table for refresh tokens — allows revocation per device/session
+model RefreshToken {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique   // bcrypt hash of the token — never store raw
+  expiresAt  DateTime
+  isRevoked  Boolean  @default(false)
+  userAgent  String?            // Browser/device info for display
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─── MILLS ───────────────────────────────────────────────────────────────────
+
+model Mill {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  licenseNumber  String?  // Pakistan Rice Exporters Association license
+  address        String
+  district       String
+  province       String   @default("Punjab")
+  geoLat         Float?
+  geoLng         Float?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization    Organization     @relation(fields: [organizationId], references: [id])
+  procurementLots ProcurementLot[]
+  millingBatches  MillingBatch[]
+
+  @@index([organizationId])
+}
+
+// ─── FARMERS & FARMS ─────────────────────────────────────────────────────────
+
+model Farmer {
+  id             String   @id @default(cuid())
+  organizationId String
+  cnic           String                      // National ID — used as unique identifier within org
+  name           String
+  fatherName     String?
+  phone          String?
+  village        String?
+  union          String?                     // Union Council
+  tehsil         String?
+  district       String
+  cnicPhotoUrl      String?                     // Storage URL of CNIC scan
+  cnicFrontPhotoUrl String?
+  cnicBackPhotoUrl  String?
+  isVerified        Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization    Organization   @relation(fields: [organizationId], references: [id])
+  farms           Farm[]
+  procurementLots ProcurementLot[]
+
+  @@unique([organizationId, cnic])
+  @@index([organizationId])
+}
+
+model Farm {
+  id            String   @id @default(cuid())
+  farmerId      String
+  name          String?                    // Optional field name
+  areaAcres     Float                      // Farm size
+  geoLat        Float                      // GPS latitude — required for EUDR
+  geoLng        Float                      // GPS longitude — required for EUDR
+  geoPolygon    Json?                      // Optional GeoJSON polygon of field boundary
+  district      String
+  tehsil        String?
+  landTitle     String?                    // Fard/Khasra number
+  eudrRiskLevel EudrRisk @default(PENDING) // Computed from deforestation API
+  eudrCheckedAt DateTime?
+  photoUrls     String[]                   // Array of storage URLs for field photos
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  farmer          Farmer           @relation(fields: [farmerId], references: [id])
+  procurementLots ProcurementLot[]
+
+  @@index([farmerId])
+}
+
+enum EudrRisk {
+  PENDING
+  LOW       // No deforestation detected
+  MEDIUM    // Flagged for manual review
+  HIGH      // High risk — cannot be included in EU shipments
+}
+
+// ─── PROCUREMENT LOTS ────────────────────────────────────────────────────────
+
+model ProcurementLot {
+  id              String    @id @default(cuid())
+  lotNumber       String    @unique  // Auto-generated: LOT-2024-00001
+  organizationId  String
+  millId          String
+  farmerId        String
+  farmId          String
+  createdById     String
+
+  variety         RiceVariety
+  weightKg        Float
+  moisturePercent Float?
+  dateReceived    DateTime
+  vehicleNumber   String?               // Truck/tractor number
+
+  // Pesticide/input declaration (self-reported by farmer)
+  pesticidesUsed      PesticideRecord[]
+  fertilizersUsed     FertilizerRecord[]
+  noPesticidesFlag    Boolean @default(false)  // Explicit "no pesticides used" declaration
+
+  gpsLat      Float?          // GPS at time of purchase (may differ from farm GPS)
+  gpsLng      Float?
+  photoUrls   String[]
+  notes       String?
+
+  status    LotStatus @default(RECEIVED)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  organization Organization   @relation(fields: [organizationId], references: [id])
+  mill         Mill           @relation(fields: [millId], references: [id])
+  farmer       Farmer         @relation(fields: [farmerId], references: [id])
+  farm         Farm           @relation(fields: [farmId], references: [id])
+  createdBy    User           @relation("CreatedBy", fields: [createdById], references: [id])
+  batchLinks   BatchLotLink[]
+
+  @@index([organizationId])
+  @@index([millId])
+  @@index([farmerId])
+  @@index([status])
+}
+
+enum LotStatus {
+  RECEIVED
+  IN_MILLING
+  MILLED
+  PARTIALLY_MILLED
+}
+
+enum RiceVariety {
+  BASMATI_1121
+  BASMATI_386
+  BASMATI_SUPER
+  PARBOILED
+  IRRI_6
+  IRRI_9
+  OTHER
+}
+
+model PesticideRecord {
+  id                String         @id @default(cuid())
+  procurementLotId  String
+  name              String         // Pesticide trade name
+  activeIngredient  String?        // e.g. Chlorpyrifos
+  applicationDate   DateTime?
+  daysBeforeHarvest Int?           // PHI (Pre-Harvest Interval)
+  doseLitersPerAcre Float?
+
+  procurementLot ProcurementLot @relation(fields: [procurementLotId], references: [id], onDelete: Cascade)
+}
+
+model FertilizerRecord {
+  id               String         @id @default(cuid())
+  procurementLotId String
+  name             String
+  npkRatio         String?        // e.g. "46-0-0"
+  applicationDate  DateTime?
+
+  procurementLot ProcurementLot @relation(fields: [procurementLotId], references: [id], onDelete: Cascade)
+}
+
+// ─── MILLING BATCHES ─────────────────────────────────────────────────────────
+
+model MillingBatch {
+  id             String   @id @default(cuid())
+  batchNumber    String   @unique  // Auto-generated: BATCH-2024-00001
+  organizationId String
+  millId         String
+  createdById    String
+
+  variety        RiceVariety
+  startDate      DateTime
+  endDate        DateTime?
+  paddyInputKg   Float             // Total paddy used
+  outputWhiteKg  Float?            // White rice output
+  outputBrokenKg Float?            // Broken rice output
+  outputBranKg   Float?            // Bran output
+  millingYield   Float?            // Computed: outputWhiteKg / paddyInputKg * 100
+
+  status    BatchStatus @default(IN_PROGRESS)
+  notes     String?
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  mill          Mill           @relation(fields: [millId], references: [id])
+  createdBy     User           @relation("CreatedBy", fields: [createdById], references: [id])
+  lotLinks      BatchLotLink[]
+  labTests      LabTest[]
+  shipmentItems ShipmentItem[]
+
+  @@index([organizationId])
+  @@index([millId])
+  @@index([status])
+}
+
+enum BatchStatus {
+  IN_PROGRESS
+  COMPLETED
+  QUALITY_HOLD
+}
+
+// Junction table: many lots → many batches
+model BatchLotLink {
+  id               String @id @default(cuid())
+  millingBatchId   String
+  procurementLotId String
+  weightUsedKg     Float  // How much of this lot went into this batch
+
+  millingBatch   MillingBatch   @relation(fields: [millingBatchId], references: [id])
+  procurementLot ProcurementLot @relation(fields: [procurementLotId], references: [id])
+
+  @@unique([millingBatchId, procurementLotId])
+}
+
+// ─── LAB TESTS ───────────────────────────────────────────────────────────────
+
+model LabTest {
+  id             String @id @default(cuid())
+  organizationId String
+  millingBatchId String
+  createdById    String
+
+  testType     LabTestType
+  labName               String       // External lab name e.g. PCSIR, SGS, Intertek
+  testDate              DateTime
+  reportNumber          String?
+  certificateUrl        String?    // Storage URL of lab PDF
+  certificateFileName   String?
+  certificateUploadedAt DateTime?
+
+  // Test result fields
+  moisturePercent      Float?
+  brokenPercent        Float?
+  chalkyPercent        Float?
+  foreignMatterPercent Float?
+  pesticideResult      String?  // PASS / FAIL / specific residue detected
+  heavyMetalResult     String?
+  mycotoxinResult      String?
+  customResults        Json?    // Flexible key-value for additional parameters
+
+  overallResult LabResult @default(PENDING)
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  millingBatch  MillingBatch @relation(fields: [millingBatchId], references: [id])
+  createdBy     User         @relation("CreatedBy", fields: [createdById], references: [id])
+
+  @@index([organizationId])
+  @@index([millingBatchId])
+}
+
+enum LabTestType {
+  PESTICIDE_RESIDUE
+  HEAVY_METALS
+  MOISTURE
+  PHYSICAL_INSPECTION
+  MYCOTOXIN
+  FULL_PANEL
+}
+
+enum LabResult {
+  PENDING
+  PASS
+  FAIL
+  CONDITIONAL  // Pass with notes
+}
+
+// Whitelist of accredited labs per org
+model ApprovedLab {
+  id             String @id @default(cuid())
+  organizationId String
+  name           String
+  accreditedBy   String?  // e.g. "PNAC", "ISO 17025"
+  isActive       Boolean  @default(true)
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, name])
+}
+
+// ─── BUYERS & SHIPMENTS ──────────────────────────────────────────────────────
+
+model Buyer {
+  id                  String    @id @default(cuid())
+  organizationId      String
+  companyName         String
+  country             String
+  contactName         String?
+  contactEmail        String
+  contactPhone        String?
+  portalAccessToken   String?   @unique   // Crypto-random, stored hashed; raw token sent to buyer
+  portalTokenHash     String?   @unique   // bcrypt hash of portalAccessToken
+  tokenExpiresAt      DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  shipments    Shipment[]
+
+  @@index([organizationId])
+}
+
+model Shipment {
+  id             String @id @default(cuid())
+  shipmentNumber String @unique  // e.g. SHP-2024-00001
+  organizationId String
+  buyerId        String
+  createdById    String
+
+  invoiceNumber   String?
+  lcNumber        String?  // Letter of Credit number
+  portOfLoading   String?  // e.g. Port Qasim, Karachi
+  portOfDischarge String?  // e.g. Rotterdam, Hamburg
+  vesselName      String?
+  billOfLadingNo  String?
+  shipmentDate    DateTime?
+
+  dueDiligenceConfirmed   Boolean   @default(false)
+  dueDiligenceConfirmedAt DateTime?
+  dueDiligenceConfirmedBy String?   // User name at time of confirmation
+
+  complianceScore  Int?
+  complianceStatus ComplianceStatus @default(INCOMPLETE)
+
+  certNumber             String?           @unique  // e.g. CERT-2024-00042
+  certificateUrl         String?
+  certificateKey         String?                    // S3 key — needed for deletion & signed URLs
+  certificateGeneratedAt DateTime?
+  certificateStatus      CertificateStatus @default(NONE)
+
+  status    ShipmentStatus @default(DRAFT)
+  notes     String?
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  buyer        Buyer         @relation(fields: [buyerId], references: [id])
+  createdBy    User          @relation("CreatedBy", fields: [createdById], references: [id])
+  items        ShipmentItem[]
+
+  @@index([organizationId])
+  @@index([buyerId])
+  @@index([status])
+  @@index([complianceStatus])
+}
+
+model ShipmentItem {
+  id             String @id @default(cuid())
+  shipmentId     String
+  millingBatchId String
+  weightKg       Float  // Weight from this batch included in shipment
+
+  shipment     Shipment     @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  millingBatch MillingBatch @relation(fields: [millingBatchId], references: [id])
+
+  @@unique([shipmentId, millingBatchId])
+}
+
+enum ComplianceStatus {
+  INCOMPLETE   // Missing required data
+  AT_RISK      // Has EUDR high-risk lots or failed lab tests
+  COMPLIANT    // All checks passed
+}
+
+enum ShipmentStatus {
+  DRAFT
+  UNDER_REVIEW
+  CERTIFICATE_ISSUED
+  SHIPPED
+  DELIVERED
+}
+
+enum CertificateStatus {
+  NONE
+  GENERATING
+  READY
+  FAILED
+}
+
+// ─── SEQUENCE COUNTERS (for auto-numbering) ──────────────────────────────────
+
+model SequenceCounter {
+  id             String @id @default(cuid())
+  organizationId String
+  counterType    String  // "LOT" | "BATCH" | "SHIPMENT"
+  year           Int
+  lastValue      Int     @default(0)
+
+  @@unique([organizationId, counterType, year])
+}
