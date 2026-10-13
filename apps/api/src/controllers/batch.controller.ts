@@ -401,9 +401,6 @@ export async function linkLotToBatch(req: Request, res: Response): Promise<Respo
     // Verify lot exists and belongs to org
     const lot = await prisma.procurementLot.findFirst({
       where: { id: lotId, organizationId: orgId },
-      include: {
-        batchLinks: true,
-      },
     });
 
     if (!lot) {
@@ -413,22 +410,23 @@ export async function linkLotToBatch(req: Request, res: Response): Promise<Respo
       });
     }
 
-    // Check existing usage across all batches
-    const currentWeightUsed = lot.batchLinks.reduce((sum, link) => sum + link.weightUsedKg, 0);
-    const newTotalUsed = currentWeightUsed + weightUsedKg;
+    // 1. Query sum of all existing BatchLotLink.weightUsedKg for this lotId
+    const aggregateResult = await prisma.batchLotLink.aggregate({
+      where: { procurementLotId: lotId },
+      _sum: { weightUsedKg: true },
+    });
+    const alreadyUsed = aggregateResult._sum.weightUsedKg ?? 0;
 
-    if (newTotalUsed > lot.weightKg) {
+    // 2. If alreadyUsed + newWeightUsedKg > lot.weightKg:
+    if (alreadyUsed + weightUsedKg > lot.weightKg) {
       return res.status(400).json({
-        success: false,
-        error: {
-          code: "WEIGHT_EXCEEDED",
-          message: `Total weight used (${newTotalUsed} kg) would exceed lot weight (${lot.weightKg} kg). Available: ${Math.max(0, lot.weightKg - currentWeightUsed)} kg`,
-          field: "weightUsedKg",
-        },
+        code: "WEIGHT_EXCEEDED",
+        message: `Only ${lot.weightKg - alreadyUsed}kg available from lot ${lot.lotNumber}`,
       });
     }
 
     // Determine updated lot status
+    const newTotalUsed = alreadyUsed + weightUsedKg;
     const newLotStatus: LotStatus = newTotalUsed >= lot.weightKg ? "IN_MILLING" : "PARTIALLY_MILLED";
 
     const [junctionRecord, updatedLot] = await prisma.$transaction([

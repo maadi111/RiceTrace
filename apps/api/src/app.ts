@@ -57,14 +57,20 @@ app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
 // ─── RATE LIMITING ───────────────────────────────────────────────────────────
 app.use(globalRateLimiter);
 
-// ─── SERVE UPLOADS IN LOCAL DEV ──────────────────────────────────────────────
-if (env.STORAGE_DRIVER === "local") {
-  const uploadDir = path.resolve(env.LOCAL_UPLOAD_DIR);
-  if (!fs.existsSync(uploadDir)) {
-    fs.mkdirSync(uploadDir, { recursive: true });
-  }
-  app.use("/uploads", express.static(uploadDir));
-}
+// Ensure upload directories exist on startup
+const uploadDirs = [
+  "./uploads/farmers/cnic/front",
+  "./uploads/farmers/cnic/back",
+  "./uploads/farms/photos",
+  "./uploads/lab-tests/certificates",
+  "./uploads/certificates",
+];
+uploadDirs.forEach((dir) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+});
+
+// Serve uploaded files statically
+app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // ─── HEALTH CHECK ────────────────────────────────────────────────────────────
 app.get("/health", (_req, res) => {
@@ -98,4 +104,3 @@ process.on("SIGTERM", async () => {
 });
 
 export { app, eudrWorker, complianceWorker, certificateWorker };
-

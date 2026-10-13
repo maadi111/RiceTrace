@@ -67,8 +67,28 @@ export async function calculateComplianceScore(
     throw new Error("SHIPMENT_NOT_FOUND");
   }
 
-  // Step 2 — Flatten nested data into flat arrays
+  // Step 2 — Guard against empty shipments without milling batches
   const batches = shipment.items.map((i) => i.millingBatch);
+  if (batches.length === 0) {
+    await prisma.shipment.update({
+      where: { id: shipmentId },
+      data: { complianceScore: 0, complianceStatus: "INCOMPLETE" },
+    });
+    return {
+      score: 0,
+      status: "INCOMPLETE",
+      checks: [
+        {
+          id: "no_batches",
+          category: "TRACEABILITY",
+          label: "No milling batches added to shipment",
+          passed: false,
+          points: 100,
+          detail: "Add at least one milling batch to calculate compliance",
+        },
+      ],
+    };
+  }
 
   const lots = batches.flatMap((b) =>
     b.lotLinks.map((link) => link.procurementLot)

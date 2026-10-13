@@ -211,7 +211,7 @@ export const CreateMillingBatchSchema = z.object({
     "OTHER",
   ]),
   startDate: z.coerce.date(),
-  paddyInputKg: z.number().positive(),
+  paddyInputKg: z.number().positive("Paddy input must be positive"),
   notes: z.string().max(2000).optional(),
 });
 
@@ -228,6 +228,9 @@ export const LinkLotToBatchSchema = z.object({
   lotId: IdSchema,
   weightUsedKg: z.number().positive("Weight used must be positive"),
 });
+
+export const BatchLotLinkSchema = LinkLotToBatchSchema;
+export const batchLotLinkSchema = LinkLotToBatchSchema;
 
 export const BatchQuerySchema = PaginationSchema.extend({
   millId: IdSchema.optional(),

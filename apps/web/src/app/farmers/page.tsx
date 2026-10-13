@@ -62,7 +62,8 @@ export default function FarmersPage() {
       totalAcreage: f.farmsCount ? f.farmsCount * 12.5 : 18.5,
       eudrStatus: "LOW" as const,
       farmsCount: f.farmsCount || 1,
-      lotsCount: f.lotsCount || 0,
+      totalLotsCount: f.lotsCount || f.totalLotsCount || 0,
+      lotsCount: f.lotsCount || f.totalLotsCount || 0,
       verified: true,
     }));
     const nonDuplicatedMocks = MOCK_FARMERS.filter(
