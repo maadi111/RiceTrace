@@ -10,7 +10,7 @@
   <a href="https://www.prisma.io"><img src="https://img.shields.io/badge/Prisma-5.22_ORM-2D3748?style=for-the-badge&logo=prisma" alt="Prisma" /></a>
   <a href="https://www.postgresql.org"><img src="https://img.shields.io/badge/PostgreSQL-16_JSONB-4169E1?style=for-the-badge&logo=postgresql" alt="PostgreSQL" /></a>
   <a href="https://turbo.build"><img src="https://img.shields.io/badge/Turborepo-Monorepo-EF4444?style=for-the-badge&logo=turborepo" alt="Turborepo" /></a>
-  <a href="https://commission.europa.eu/energy-climate-change-environment/standards-tools-and-labels/eu-deforestation-regulation_en"><img src="https://img.shields.io/badge/EUDR_2023%2F1115-Compliant-10B981?style=for-the-badge" alt="EUDR Compliant" /></a>
+  <a href="https://commission.europa.eu/energy-climate-change-environment/standards-tools-and-labels/eu-deforestation-regulation_en"><img src="https://img.shields.io/badge/EUDR_2023%2F1115-Aligned-10B981?style=for-the-badge" alt="EUDR Aligned" /></a>
   <img src="https://img.shields.io/badge/License-All_Rights_Reserved-red?style=for-the-badge" alt="All Rights Reserved" />
 </p>
 
